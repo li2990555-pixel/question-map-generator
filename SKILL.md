@@ -134,21 +134,122 @@ docs/问题导图/{书名}/
 {它没回答什么？留下了什么漏洞？}
 ```
 
-**Canvas 节点规则：**
-- 类型：`"type": "file"`
-- `file` 字段：相对路径，如 `"问题导图/万物皆可测量/cards/Q1.md"`
-- 尺寸：**尽量大**，确保文字不被截断
-  - 问题卡片：x=40, y=行Y, w=480, h=200
-  - 回答卡片：x=580, y=行Y, w=480, h=280
-  - 局限卡片：x=1120, y=行Y, w=480, h=200
-- 颜色：Color 6=问题, Color 4=回答, Color 1=局限
-- 连线同原规则
+**Canvas 布局方案：** 水平流 + 纵向堆叠。每轮 Q→A→L 从左到右一横行展开，多轮从上到下堆叠。每组用 Group 节点包裹，连线带箭头和标签标明流转关系。
+
+**颜色方案：**
+
+| 卡片 | color 值 | Obsidian 色 | 含义 |
+|------|----------|-------------|------|
+| Q (问题) | Color 6 | 紫色 | 沉思/提问 |
+| A (回答) | Color 4 | 绿色 | 回答/生长 |
+| L (局限) | Color 2 | 橙色 | 边界/慎思 |
+
+**节点坐标（每轮 `rowIndex` 从 0 开始）：**
+
+每行 y 起始 = `rowIndex * 400 + 60`
+
+| 卡片 | x | y | w | h | type | file 相对路径 |
+|------|---|---|---|---|------|-------------|
+| Q | 80 | rowY | 420 | 180 | file | `问题导图/{书名}/cards/Q{编号}.md` |
+| A | 560 | rowY | 420 | 280 | file | `问题导图/{书名}/cards/A{编号}.md` |
+| L | 1040 | rowY | 420 | 180 | file | `问题导图/{书名}/cards/L{编号}.md` |
+
+**Group 节点（包裹每轮）：**
+
+| 字段 | 值 |
+|------|-----|
+| type | group |
+| x | 50 |
+| y | rowY - 40 |
+| w | 1440 |
+| h | 360 |
+| label | `"📖 第{N}轮问题链"` |
+| color | 偶数轮 Color 5 (青色)，奇数轮 Color 3 (黄色)，交替使用 |
+
+**连线规则（Edge）：**
+
+| 连线 | fromNode | toNode | fromSide | toSide | endArrowhead | label |
+|------|----------|--------|----------|--------|--------------|-------|
+| Q → A | Q节点id | A节点id | right | left | arrow | "回应" |
+| A → L | A节点id | L节点id | right | left | arrow | "局限" |
+| L → Q_next | L节点id | 下轮Q节点id | bottom | top | arrow | "引出" |
+
+L→Q_next 的连线建议设置 `path` 参数实现曲线路径，让视觉流转更自然（从 L 底部出发，弧线绕到下一行 Q 顶部）。
+
+**Canvas JSON 结构示例（一轮）：**
+
+```json
+{
+  "nodes": [
+    {
+      "id": "Q1",
+      "type": "file",
+      "file": "问题导图/{书名}/cards/Q1.md",
+      "x": 80,
+      "y": 60,
+      "width": 420,
+      "height": 180,
+      "color": "6"
+    },
+    {
+      "id": "A1",
+      "type": "file",
+      "file": "问题导图/{书名}/cards/A1.md",
+      "x": 560,
+      "y": 60,
+      "width": 420,
+      "height": 280,
+      "color": "4"
+    },
+    {
+      "id": "L1",
+      "type": "file",
+      "file": "问题导图/{书名}/cards/L1.md",
+      "x": 1040,
+      "y": 60,
+      "width": 420,
+      "height": 180,
+      "color": "2"
+    },
+    {
+      "id": "group1",
+      "type": "group",
+      "label": "📖 第1轮问题链",
+      "x": 50,
+      "y": 20,
+      "width": 1440,
+      "height": 360,
+      "color": "5"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "fromNode": "Q1",
+      "fromSide": "right",
+      "toNode": "A1",
+      "toSide": "left",
+      "endArrowhead": "arrow",
+      "label": "回应"
+    },
+    {
+      "id": "e2",
+      "fromNode": "A1",
+      "fromSide": "right",
+      "toNode": "L1",
+      "toSide": "left",
+      "endArrowhead": "arrow",
+      "label": "局限"
+    }
+  ]
+}
+```
 
 **续写逻辑：**
 - 读取已有 `.canvas` 文件和 `cards/` 目录
 - 找出最大编号，新卡片编号 = 最大编号 + 1
-- 新行 y = 最后行 y + 350
-- 连线从最后的局限 → 新行的问题
+- 新行 y = 最后行 y + 400（注：行 y 指节点 y，不是 group y）
+- 新增连线：从上一轮 L 节点底部（fromSide: bottom）→ 新行 Q 节点顶部（toSide: top），endArrowhead: "arrow"，label: "引出"
 
 ### Step 5: 完成提示
 
@@ -173,4 +274,4 @@ docs/问题导图/{书名}/
 2. **一次只生成一个节点。** 读一段生成一个节点，不要一口气生成整章。
 3. **不覆盖已有内容。** 如果 canvas 已存在，只追加节点，不修改已有节点。
 4. **允许跳过。** 用户不想填局限？可以跳过，留下空节点后续可补。
-5. **颜色编码固定：** Color 6=问题卡片, Color 4=回答卡片, Color 1=局限卡片。
+5. **颜色编码固定：** Color 6=问题卡片（紫色）, Color 4=回答卡片（绿色）, Color 2=局限卡片（橙色）。
